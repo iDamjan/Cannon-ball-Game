@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import GUI from "lil-gui";
 import CANNON from "cannon";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 /**
  * Debug
@@ -13,7 +14,7 @@ const debugObject = {};
 debugObject.createSphere = () => {
   createSphere(Math.random(), {
     x: (Math.random() - 0.5) * 2,
-    y: 3,
+    y: 3.2,
     z: (Math.random() - 0.5) * 2,
   });
 };
@@ -21,7 +22,7 @@ debugObject.createSphere = () => {
 debugObject.createBox = () => {
   createBox(Math.random(), Math.random(), Math.random(), {
     x: (Math.random() - 0.5) * 2,
-    y: 3,
+    y: 3.2,
     z: (Math.random() - 0.5) * 2,
   });
 };
@@ -89,7 +90,6 @@ const defaultContactMaterial = new CANNON.ContactMaterial(
 
 world.addContactMaterial(defaultContactMaterial);
 world.defaultContactMaterial = defaultContactMaterial;
-// Sphere psysic
 
 // Floor physics (its infinite floor basicly)
 const floorShape = new CANNON.Plane();
@@ -255,20 +255,95 @@ for (let i = 0; i < 10; i++) {
   if (y > 0) {
     y += i / 10;
   }
-  createBox(1, 1, 1, { x: y, y: 0, z: 0 });
-  createBox(1, 1, 1, { x: y, y: 1, z: 0 });
-  createBox(1, 1, 1, { x: y, y: 2, z: 0 });
+  createBox(1, 1, 1, { x: y, y: 0.5, z: 0 });
+  createBox(1, 1, 1, { x: y, y: 1.5, z: 0 });
+  createBox(1, 1, 1, { x: y, y: 2.5, z: 0 });
 }
 
-createSphere(0.5, { x: 2, y: 0, z: 5 });
+createSphere(0.5, { x: 2, y: 0.5, z: 5 });
 
-window.addEventListener("keydown", () => {
-  console.log(objectsToUpdate[0].body);
-  spheresToUpdate[0].body.applyLocalForce(
-    new CANNON.Vec3(0, 500, -1000),
-    new CANNON.Vec3(0, 0, 0)
-  );
+let foxPhysicsBody = null;
+/**
+ * Import Fox model
+ */
+let foxMesh = null;
+let action = null;
+let mixer = null;
+let isAnimationPlaying = null;
+const gltfLoader = new GLTFLoader();
+gltfLoader.load("Models/Fox/glTF/Fox.gltf", (gltf) => {
+  mixer = new THREE.AnimationMixer(gltf.scene);
+  action = mixer.clipAction(gltf.animations[1]);
+  gltf.scene.scale.set(0.025, 0.025, 0.025);
+  gltf.scene.position.z = 6;
+
+  foxMesh = gltf.scene;
+  scene.add(gltf.scene);
+
+  /**
+   * Fox Physics body
+   */
+  const shape = new CANNON.Box(new CANNON.Vec3(0.01, 0.01, 0.01)); // Adjust the size accordingly
+  foxPhysicsBody = new CANNON.Body({
+    mass: 1,
+    material: defaultMaterial,
+    position: new CANNON.Vec3(0, 0, 5),
+    shape: shape, // Set the shape for the physics body
+  });
+
+  world.addBody(foxPhysicsBody);
+
+  // Link Three.js mesh with Cannon.js body
+  foxPhysicsBody.threeMesh = foxMesh;
+  foxMesh.userData.physicsBody = foxPhysicsBody;
 });
+
+/**
+ * Move the Fox
+ */
+function playAnimation() {
+  if (!isAnimationPlaying) {
+    action.play();
+    isAnimationPlaying = true;
+  }
+}
+
+function stopAnimation() {
+  if (isAnimationPlaying) {
+    action.stop();
+    isAnimationPlaying = false;
+  }
+}
+
+window.addEventListener("keydown", playAnimation);
+window.addEventListener("keyup", stopAnimation);
+
+window.addEventListener("keydown", (event) => {
+  console.log(event.key);
+  switch (event.key) {
+    case "w":
+      foxPhysicsBody.position.z += 0.1;
+      break;
+    case "a": // A key
+      foxPhysicsBody.position.x += 0.1;
+      break;
+    case "s": // S key
+      foxPhysicsBody.position.z -= 0.1;
+      break;
+    case "d": // D key
+      foxPhysicsBody.position.x -= 0.1;
+      break;
+    // Add more cases for other keys if needed
+  }
+});
+
+// SHOOT THE OBJECT
+// window.addEventListener("keydown", () => {
+//   spheresToUpdate[0].body.applyLocalForce(
+//     new CANNON.Vec3(0, 500, -1000),
+//     new CANNON.Vec3(0, 0, 0)
+//   );
+// });
 
 /**
  * Animate
@@ -281,6 +356,11 @@ const tick = () => {
   const deltaTime = elapsedTime - oldElapsedTime;
   oldElapsedTime = elapsedTime;
 
+  if (foxMesh && foxPhysicsBody) {
+    foxMesh.position.copy(foxPhysicsBody.position);
+    foxMesh.quaternion.copy(foxPhysicsBody.quaternion);
+  }
+
   for (let object of objectsToUpdate) {
     object.mesh.position.copy(object.body.position);
     object.mesh.quaternion.copy(object.body.quaternion);
@@ -291,6 +371,10 @@ const tick = () => {
   }
 
   world.step(1 / 60, deltaTime, 3);
+
+  if (mixer) {
+    mixer.update(deltaTime);
+  }
 
   // Update controls
   controls.update();
